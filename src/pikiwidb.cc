@@ -218,6 +218,25 @@ static void InitLogs() {
 #endif
 }
 
+static int InitLimit() {
+  rlimit limit;
+  rlim_t maxfiles = g_config.max_clients;
+  if (getrlimit(RLIMIT_NOFILE, &limit) == -1) {
+    WARN("getrlimit error:  ", strerror(errno));
+  } else if (limit.rlim_cur < maxfiles) {
+    rlim_t old_limit = limit.rlim_cur;
+    limit.rlim_cur = maxfiles;
+    limit.rlim_max = maxfiles;
+    if (setrlimit(RLIMIT_NOFILE, &limit) != -1) {
+      WARN( "your 'limit -n ' of ", old_limit, " is not enough for PikiwiDB to start. PikiwiDB have successfully reconfig it to " , limit.rlim_cur);
+    } else {
+      ERROR("your 'limit -n ' of " , old_limit, " is not enough for PikiwiDB to start. PikiwiDB can not reconfig it(", strerror(errno), "), do it by yourself");
+      return -1;
+    }
+  }
+  return 0;
+}
+
 static void daemonize() {
   if (fork()) {
     exit(0); /* parent exits */
@@ -260,6 +279,7 @@ int main(int ac, char* av[]) {
     daemonize();
   }
 
+  InitLimit();
   pstd::InitRandom();
   SignalSetup();
   InitLogs();
