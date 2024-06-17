@@ -102,8 +102,7 @@ class Redis {
 
   void SetNeedClose(bool need_close) { need_close_.store(need_close); }
 
-  virtual Status CompactRange(const DataType& option_type, const rocksdb::Slice* begin, const rocksdb::Slice* end,
-                              const ColumnFamilyType& type = kMetaAndData);
+  virtual Status CompactRange(const rocksdb::Slice* begin, const rocksdb::Slice* end);
 
   virtual Status GetProperty(const std::string& property, uint64_t* out);
   bool IsApplied(size_t cf_idx, LogIndex logidx) const { return log_index_of_all_cfs_.IsApplied(cf_idx, logidx); }
@@ -120,43 +119,7 @@ class Redis {
   Status ScanZsetsKeyNum(KeyInfo* key_info);
   Status ScanSetsKeyNum(KeyInfo* key_info);
 
-  virtual Status StringsPKPatternMatchDel(const std::string& pattern, int32_t* ret);
-  virtual Status ListsPKPatternMatchDel(const std::string& pattern, int32_t* ret);
-  virtual Status HashesPKPatternMatchDel(const std::string& pattern, int32_t* ret);
-  virtual Status ZsetsPKPatternMatchDel(const std::string& pattern, int32_t* ret);
-  virtual Status SetsPKPatternMatchDel(const std::string& pattern, int32_t* ret);
-
-  // Keys Commands
-  virtual Status StringsExpire(const Slice& key, uint64_t ttl);
-  virtual Status HashesExpire(const Slice& key, uint64_t ttl);
-  virtual Status ListsExpire(const Slice& key, uint64_t ttl);
-  virtual Status ZsetsExpire(const Slice& key, uint64_t ttl);
-  virtual Status SetsExpire(const Slice& key, uint64_t ttl);
-
-  virtual Status StringsDel(const Slice& key);
-  virtual Status HashesDel(const Slice& key);
-  virtual Status ListsDel(const Slice& key);
-  virtual Status ZsetsDel(const Slice& key);
-  virtual Status SetsDel(const Slice& key);
-
-  virtual Status StringsExpireat(const Slice& key, uint64_t timestamp);
-  virtual Status HashesExpireat(const Slice& key, uint64_t timestamp);
-  virtual Status ListsExpireat(const Slice& key, uint64_t timestamp);
-  virtual Status SetsExpireat(const Slice& key, uint64_t timestamp);
-  virtual Status ZsetsExpireat(const Slice& key, uint64_t timestamp);
-
-  virtual Status StringsPersist(const Slice& key);
-  virtual Status HashesPersist(const Slice& key);
-  virtual Status ListsPersist(const Slice& key);
-  virtual Status ZsetsPersist(const Slice& key);
-  virtual Status SetsPersist(const Slice& key);
-
-  virtual Status StringsTTL(const Slice& key, uint64_t* timestamp);
-  virtual Status HashesTTL(const Slice& key, uint64_t* timestamp);
-  virtual Status ListsTTL(const Slice& key, uint64_t* timestamp);
-  virtual Status ZsetsTTL(const Slice& key, uint64_t* timestamp);
-  virtual Status SetsTTL(const Slice& key, uint64_t* timestamp);
-
+  //   Keys Commands
   virtual Status StringsRename(const Slice& key, Redis* new_inst, const Slice& newkey);
   virtual Status HashesRename(const Slice& key, Redis* new_inst, const Slice& newkey);
   virtual Status ListsRename(const Slice& key, Redis* new_inst, const Slice& newkey);
@@ -200,6 +163,19 @@ class Redis {
   Status BitPos(const Slice& key, int32_t bit, int64_t start_offset, int64_t* ret);
   Status BitPos(const Slice& key, int32_t bit, int64_t start_offset, int64_t end_offset, int64_t* ret);
   Status PKSetexAt(const Slice& key, const Slice& value, uint64_t timestamp);
+
+  Status Exists(const Slice& key);
+  Status Del(const Slice& key);
+  Status Expire(const Slice& key, int64_t timestamp);
+  Status Expireat(const Slice& key, int64_t timestamp);
+  Status Persist(const Slice& key);
+  Status TTL(const Slice& key, int64_t* timestamp);
+  Status PKPatternMatchDel(const std::string& pattern, int32_t* ret);
+  Status Rename(const std::string& key, const std::string& newkey);
+  Status Renamenx(const std::string& key, const std::string& newkey);
+
+  Status GetType(const Slice& key, enum DataType& type);
+  Status IsExist(const Slice& key);
 
   // Hash Commands
   Status HDel(const Slice& key, const std::vector<std::string>& fields, int32_t* ret);
@@ -337,25 +313,61 @@ class Redis {
     options.iterate_upper_bound = upper_bound;
     switch (type) {
       case 'k':
-        return new StringsIterator(options, db_, handles_[kStringsCF], pattern);
+        return new StringsIterator(options, db_, handles_[kMetaCF], pattern);
         break;
       case 'h':
-        return new HashesIterator(options, db_, handles_[kHashesMetaCF], pattern);
+        return new HashesIterator(options, db_, handles_[kMetaCF], pattern);
         break;
       case 's':
-        return new SetsIterator(options, db_, handles_[kSetsMetaCF], pattern);
+        return new SetsIterator(options, db_, handles_[kMetaCF], pattern);
         break;
       case 'l':
-        return new ListsIterator(options, db_, handles_[kListsMetaCF], pattern);
+        return new ListsIterator(options, db_, handles_[kMetaCF], pattern);
         break;
       case 'z':
-        return new ZsetsIterator(options, db_, handles_[kZsetsMetaCF], pattern);
+        return new ZsetsIterator(options, db_, handles_[kMetaCF], pattern);
         break;
       default:
         WARN("Invalid datatype to create iterator");
         return nullptr;
     }
     return nullptr;
+  }
+
+  enum DataType GetMetaValueType(const std::string& meta_value) {
+    DataType meta_type = static_cast<enum DataType>(static_cast<uint8_t>(meta_value[0]));
+    return meta_type;
+  }
+
+  bool ExpectedMetaValue(enum DataType type, const std::string& meta_value) {
+    auto meta_type = static_cast<enum DataType>(static_cast<uint8_t>(meta_value[0]));
+    if (type == meta_type) {
+      return true;
+    }
+    return false;
+  }
+
+  bool IsStale(const std::string& meta_value) {
+    auto meta_type = static_cast<enum DataType>(static_cast<uint8_t>(meta_value[0]));
+    switch (meta_type) {
+      case DataType::kZSets:
+      case DataType::kSets:
+      case DataType::kHashes: {
+        ParsedBaseMetaValue parsed_meta_value(meta_value);
+        return (parsed_meta_value.IsStale() || parsed_meta_value.Count() == 0);
+      }
+      case DataType::kLists: {
+        ParsedListsMetaValue parsed_lists_meta_value(meta_value);
+        return (parsed_lists_meta_value.IsStale() || parsed_lists_meta_value.Count() == 0);
+      }
+      case DataType::kStrings: {
+        ParsedStringsValue parsed_strings_value(meta_value);
+        return parsed_strings_value.IsStale();
+      }
+      default: {
+        return false;
+      }
+    }
   }
 
   LogIndexOfColumnFamilies& GetLogIndexOfColumnFamilies() { return log_index_of_all_cfs_; }

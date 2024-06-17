@@ -27,6 +27,7 @@
 
 #include "pstd/env.h"
 #include "pstd/pstd_mutex.h"
+#include "src/base_data_value_format.h"
 #include "storage/slot_indexer.h"
 
 namespace pikiwidb {
@@ -142,11 +143,6 @@ struct ScoreMember {
 
 enum BeforeOrAfter { Before, After };
 
-enum DataType { kAll, kStrings, kHashes, kSets, kLists, kZSets };
-
-const std::string DataTypeToString[] = {"all", "string", "hash", "set", "list", "zset"};
-const char DataTypeTag[] = {'a', 'k', 'h', 's', 'l', 'z'};
-
 enum class OptionType {
   kDB,
   kColumnFamily,
@@ -158,16 +154,7 @@ enum AGGREGATE { SUM, MIN, MAX };
 
 enum BitOpType { kBitOpAnd = 1, kBitOpOr, kBitOpXor, kBitOpNot, kBitOpDefault };
 
-enum Operation {
-  kNone = 0,
-  kCleanAll,
-  kCleanStrings,
-  kCleanHashes,
-  kCleanZSets,
-  kCleanSets,
-  kCleanLists,
-  kCompactRange
-};
+enum Operation { kNone = 0, kCleanAll, kCompactRange };
 
 struct BGTask {
   DataType type;
@@ -986,11 +973,6 @@ class Storage {
   // return >=0 the number of keys that were removed
   int64_t Del(const std::vector<std::string>& keys);
 
-  // Removes the specified keys of the specified type
-  // return -1 operation exception errors happen in database
-  // return >= 0 the number of keys that were removed
-  int64_t DelByType(const std::vector<std::string>& keys, const DataType& type);
-
   // Iterate over a collection of elements
   // return an updated cursor that the user need to use as the cursor argument
   // in the next call
@@ -1041,18 +1023,18 @@ class Storage {
   // return -1 operation exception errors happen in database
   // return 0 if key does not exist or does not have an associated timeout
   // return >=1 if the timueout was set
-  int32_t Persist(const Slice& key, std::map<DataType, Status>* type_status);
+  int32_t Persist(const Slice& key);
 
   // Returns the remaining time to live of a key that has a timeout.
   // return -3 operation exception errors happen in database
   // return -2 if the key does not exist
   // return -1 if the key exists but has not associated expire
   // return > 0 TTL in seconds
-  std::map<DataType, int64_t> TTL(const Slice& key, std::map<DataType, Status>* type_status);
+  int64_t TTL(const Slice& key);
 
   // Reutrns the data all type of the key
   // if single is true, the query will return the first one
-  Status GetType(const std::string& key, bool single, std::vector<std::string>& types);
+  Status GetType(const std::string& key, enum DataType& type);
 
   // Reutrns the data all type of the key
   Status Type(const std::string& key, std::vector<std::string>& types);
