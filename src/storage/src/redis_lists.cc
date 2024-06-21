@@ -67,8 +67,6 @@ Status Redis::LIndex(const Slice& key, int64_t index, std::string* element) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
-    uint64_t version = parsed_lists_meta_value.Version();
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -76,6 +74,8 @@ Status Redis::LIndex(const Slice& key, int64_t index, std::string* element) {
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
+      uint64_t version = parsed_lists_meta_value.Version();
       uint64_t target_index =
           index >= 0 ? parsed_lists_meta_value.LeftIndex() + index + 1 : parsed_lists_meta_value.RightIndex() + index;
       if (parsed_lists_meta_value.LeftIndex() < target_index && target_index < parsed_lists_meta_value.RightIndex()) {
@@ -103,7 +103,6 @@ Status Redis::LInsert(const Slice& key, const BeforeOrAfter& before_or_after, co
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -111,6 +110,7 @@ Status Redis::LInsert(const Slice& key, const BeforeOrAfter& before_or_after, co
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       bool find_pivot = false;
       uint64_t pivot_index = 0;
       uint64_t version = parsed_lists_meta_value.Version();
@@ -206,7 +206,6 @@ Status Redis::LLen(const Slice& key, uint64_t* len) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -214,6 +213,7 @@ Status Redis::LLen(const Slice& key, uint64_t* len) {
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       *len = parsed_lists_meta_value.Count();
       return s;
     }
@@ -233,7 +233,6 @@ Status Redis::LPop(const Slice& key, int64_t count, std::vector<std::string>* el
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -241,6 +240,7 @@ Status Redis::LPop(const Slice& key, int64_t count, std::vector<std::string>* el
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       auto size = static_cast<int64_t>(parsed_lists_meta_value.Count());
       uint64_t version = parsed_lists_meta_value.Version();
       int32_t start_index = 0;
@@ -280,26 +280,38 @@ Status Redis::LPush(const Slice& key, const std::vector<std::string>& values, ui
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
-      version = parsed_lists_meta_value.InitialMetaValue();
+      char str[8];
+      EncodeFixed64(str, values.size());
+      ListsMetaValue lists_meta_value(Slice(str, sizeof(uint64_t)));
+      version = lists_meta_value.UpdateVersion();
+      for (const auto& value : values) {
+        index = lists_meta_value.LeftIndex();
+        lists_meta_value.ModifyLeftIndex(1);
+        ListsDataKey lists_data_key(key, version, index);
+        BaseDataValue i_val(value);
+        batch->Put(kListsDataCF, lists_data_key.Encode(), i_val.Encode());
+      }
+      batch->Put(kMetaCF, base_meta_key.Encode(), lists_meta_value.Encode());
+      *ret = lists_meta_value.RightIndex() - lists_meta_value.LeftIndex() - 1;
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
       return Status::InvalidArgument("WRONGTYPE, key: " + key.ToString() +
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       version = parsed_lists_meta_value.Version();
+      for (const auto& value : values) {
+        index = parsed_lists_meta_value.LeftIndex();
+        parsed_lists_meta_value.ModifyLeftIndex(1);
+        parsed_lists_meta_value.ModifyCount(1);
+        ListsDataKey lists_data_key(key, version, index);
+        BaseDataValue i_val(value);
+        batch->Put(kListsDataCF, lists_data_key.Encode(), i_val.Encode());
+      }
+      batch->Put(kMetaCF, base_meta_key.Encode(), meta_value);
+      *ret = parsed_lists_meta_value.Count();
     }
-    for (const auto& value : values) {
-      index = parsed_lists_meta_value.LeftIndex();
-      parsed_lists_meta_value.ModifyLeftIndex(1);
-      parsed_lists_meta_value.ModifyCount(1);
-      ListsDataKey lists_data_key(key, version, index);
-      BaseDataValue i_val(value);
-      batch->Put(kListsDataCF, lists_data_key.Encode(), i_val.Encode());
-    }
-    batch->Put(kMetaCF, base_meta_key.Encode(), meta_value);
-    *ret = parsed_lists_meta_value.Count();
   } else if (s.IsNotFound()) {
     char str[8];
     EncodeFixed64(str, values.size());
@@ -331,8 +343,6 @@ Status Redis::LPushx(const Slice& key, const std::vector<std::string>& values, u
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
-
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -340,6 +350,7 @@ Status Redis::LPushx(const Slice& key, const std::vector<std::string>& values, u
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       uint64_t version = parsed_lists_meta_value.Version();
       for (const auto& value : values) {
         uint64_t index = parsed_lists_meta_value.LeftIndex();
@@ -368,7 +379,6 @@ Status Redis::LRange(const Slice& key, int64_t start, int64_t stop, std::vector<
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -376,6 +386,7 @@ Status Redis::LRange(const Slice& key, int64_t start, int64_t stop, std::vector<
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       uint64_t version = parsed_lists_meta_value.Version();
       uint64_t origin_left_index = parsed_lists_meta_value.LeftIndex() + 1;
       uint64_t origin_right_index = parsed_lists_meta_value.RightIndex() - 1;
@@ -421,7 +432,6 @@ Status Redis::LRangeWithTTL(const Slice& key, int64_t start, int64_t stop, std::
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound("Stale");
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -429,6 +439,7 @@ Status Redis::LRangeWithTTL(const Slice& key, int64_t start, int64_t stop, std::
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       // ttl
       *ttl = parsed_lists_meta_value.Etime();
       if (*ttl == 0) {
@@ -481,7 +492,6 @@ Status Redis::LRem(const Slice& key, int64_t count, const Slice& value, uint64_t
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -489,6 +499,7 @@ Status Redis::LRem(const Slice& key, int64_t count, const Slice& value, uint64_t
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       uint64_t current_index;
       std::vector<uint64_t> target_index;
       std::vector<uint64_t> delete_index;
@@ -606,7 +617,6 @@ Status Redis::LSet(const Slice& key, int64_t index, const Slice& value) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -614,6 +624,7 @@ Status Redis::LSet(const Slice& key, int64_t index, const Slice& value) {
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       uint64_t version = parsed_lists_meta_value.Version();
       uint64_t target_index =
           index >= 0 ? parsed_lists_meta_value.LeftIndex() + index + 1 : parsed_lists_meta_value.RightIndex() + index;
@@ -641,8 +652,6 @@ Status Redis::LTrim(const Slice& key, int64_t start, int64_t stop) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
-    uint64_t version = parsed_lists_meta_value.Version();
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -650,6 +659,8 @@ Status Redis::LTrim(const Slice& key, int64_t start, int64_t stop) {
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
+      uint64_t version = parsed_lists_meta_value.Version();
       uint64_t origin_left_index = parsed_lists_meta_value.LeftIndex() + 1;
       uint64_t origin_right_index = parsed_lists_meta_value.RightIndex() - 1;
       uint64_t sublist_left_index = start >= 0 ? origin_left_index + start : origin_right_index + start + 1;
@@ -705,7 +716,6 @@ Status Redis::RPop(const Slice& key, int64_t count, std::vector<std::string>* el
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -713,6 +723,7 @@ Status Redis::RPop(const Slice& key, int64_t count, std::vector<std::string>* el
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       auto size = static_cast<int64_t>(parsed_lists_meta_value.Count());
       uint64_t version = parsed_lists_meta_value.Version();
       int32_t start_index = 0;
@@ -752,7 +763,6 @@ Status Redis::RPoplpush(const Slice& source, const Slice& destination, std::stri
     BaseMetaKey base_source(source);
     s = db_->Get(default_read_options_, handles_[kMetaCF], base_source.Encode(), &meta_value);
     if (s.ok()) {
-      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       if (IsStale(meta_value)) {
         return Status::NotFound();
       } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -760,6 +770,7 @@ Status Redis::RPoplpush(const Slice& source, const Slice& destination, std::stri
                                        ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                        "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
       } else {
+        ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
         std::string target;
         uint64_t version = parsed_lists_meta_value.Version();
         uint64_t last_node_index = parsed_lists_meta_value.RightIndex() - 1;
@@ -799,7 +810,6 @@ Status Redis::RPoplpush(const Slice& source, const Slice& destination, std::stri
   BaseMetaKey base_source(source);
   s = db_->Get(default_read_options_, handles_[kMetaCF], base_source.Encode(), &source_meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&source_meta_value);
     if (IsStale(source_meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, source_meta_value)) {
@@ -807,6 +817,7 @@ Status Redis::RPoplpush(const Slice& source, const Slice& destination, std::stri
                                      DataTypeStrings[static_cast<int>(DataType::kLists)] + "get type: " +
                                      DataTypeStrings[static_cast<int>(GetMetaValueType(source_meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&source_meta_value);
       version = parsed_lists_meta_value.Version();
       uint64_t last_node_index = parsed_lists_meta_value.RightIndex() - 1;
       ListsDataKey lists_data_key(source, version, last_node_index);
@@ -829,22 +840,30 @@ Status Redis::RPoplpush(const Slice& source, const Slice& destination, std::stri
   BaseMetaKey base_destination(destination);
   s = db_->Get(default_read_options_, handles_[kMetaCF], base_destination.Encode(), &destination_meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&destination_meta_value);
     if (IsStale(destination_meta_value)) {
-      version = parsed_lists_meta_value.InitialMetaValue();
+      char str[8];
+      EncodeFixed64(str, 1);
+      ListsMetaValue lists_meta_value(Slice(str, sizeof(uint64_t)));
+      version = lists_meta_value.UpdateVersion();
+      uint64_t target_index = lists_meta_value.LeftIndex();
+      ListsDataKey lists_data_key(destination, version, target_index);
+      batch->Put(kListsDataCF, lists_data_key.Encode(), target);
+      lists_meta_value.ModifyLeftIndex(1);
+      batch->Put(kMetaCF, base_destination.Encode(), lists_meta_value.Encode());
     } else if (!ExpectedMetaValue(DataType::kLists, destination_meta_value)) {
       return Status::InvalidArgument("WRONGTYPE, key: " + destination.ToString() + ", expect type: " +
                                      DataTypeStrings[static_cast<int>(DataType::kLists)] + "get type: " +
                                      DataTypeStrings[static_cast<int>(GetMetaValueType(destination_meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&destination_meta_value);
       version = parsed_lists_meta_value.Version();
+      uint64_t target_index = parsed_lists_meta_value.LeftIndex();
+      ListsDataKey lists_data_key(destination, version, target_index);
+      batch->Put(kListsDataCF, lists_data_key.Encode(), target);
+      parsed_lists_meta_value.ModifyCount(1);
+      parsed_lists_meta_value.ModifyLeftIndex(1);
+      batch->Put(kMetaCF, base_destination.Encode(), destination_meta_value);
     }
-    uint64_t target_index = parsed_lists_meta_value.LeftIndex();
-    ListsDataKey lists_data_key(destination, version, target_index);
-    batch->Put(kListsDataCF, lists_data_key.Encode(), target);
-    parsed_lists_meta_value.ModifyCount(1);
-    parsed_lists_meta_value.ModifyLeftIndex(1);
-    batch->Put(kMetaCF, base_destination.Encode(), destination_meta_value);
   } else if (s.IsNotFound()) {
     char str[8];
     EncodeFixed64(str, 1);
@@ -880,26 +899,38 @@ Status Redis::RPush(const Slice& key, const std::vector<std::string>& values, ui
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
-      version = parsed_lists_meta_value.InitialMetaValue();
+      char str[8];
+      EncodeFixed64(str, values.size());
+      ListsMetaValue lists_meta_value(Slice(str, sizeof(uint64_t)));
+      version = lists_meta_value.UpdateVersion();
+      for (const auto& value : values) {
+        index = lists_meta_value.RightIndex();
+        lists_meta_value.ModifyRightIndex(1);
+        ListsDataKey lists_data_key(key, version, index);
+        BaseDataValue i_val(value);
+        batch->Put(kListsDataCF, lists_data_key.Encode(), i_val.Encode());
+      }
+      batch->Put(kMetaCF, base_meta_key.Encode(), lists_meta_value.Encode());
+      *ret = lists_meta_value.RightIndex() - lists_meta_value.LeftIndex() - 1;
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
       return Status::InvalidArgument("WRONGTYPE, key: " + key.ToString() +
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       version = parsed_lists_meta_value.Version();
+      for (const auto& value : values) {
+        index = parsed_lists_meta_value.RightIndex();
+        parsed_lists_meta_value.ModifyRightIndex(1);
+        parsed_lists_meta_value.ModifyCount(1);
+        ListsDataKey lists_data_key(key, version, index);
+        BaseDataValue i_val(value);
+        batch->Put(kListsDataCF, lists_data_key.Encode(), i_val.Encode());
+      }
+      batch->Put(kMetaCF, base_meta_key.Encode(), meta_value);
+      *ret = parsed_lists_meta_value.Count();
     }
-    for (const auto& value : values) {
-      index = parsed_lists_meta_value.RightIndex();
-      parsed_lists_meta_value.ModifyRightIndex(1);
-      parsed_lists_meta_value.ModifyCount(1);
-      ListsDataKey lists_data_key(key, version, index);
-      BaseDataValue i_val(value);
-      batch->Put(kListsDataCF, lists_data_key.Encode(), i_val.Encode());
-    }
-    batch->Put(kMetaCF, base_meta_key.Encode(), meta_value);
-    *ret = parsed_lists_meta_value.Count();
   } else if (s.IsNotFound()) {
     char str[8];
     EncodeFixed64(str, values.size());
@@ -930,7 +961,6 @@ Status Redis::RPushx(const Slice& key, const std::vector<std::string>& values, u
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kLists, meta_value)) {
@@ -938,6 +968,7 @@ Status Redis::RPushx(const Slice& key, const std::vector<std::string>& values, u
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kLists)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       uint64_t version = parsed_lists_meta_value.Version();
       for (const auto& value : values) {
         uint64_t index = parsed_lists_meta_value.RightIndex();
@@ -965,13 +996,11 @@ Status Redis::ListsRename(const Slice& key, Redis* new_inst, const Slice& newkey
   BaseMetaKey base_meta_newkey(newkey);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
-    if (parsed_lists_meta_value.IsStale()) {
-      return Status::NotFound("Stale");
-    } else if (parsed_lists_meta_value.Count() == 0) {
+    if (IsStale(meta_value)) {
       return Status::NotFound();
     }
     // copy a new list with newkey
+    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     statistic = parsed_lists_meta_value.Count();
     s = new_inst->GetDB()->Put(default_write_options_, handles_[kMetaCF], base_meta_newkey.Encode(), meta_value);
     new_inst->UpdateSpecificKeyStatistics(DataType::kLists, newkey.ToString(), statistic);
@@ -994,22 +1023,19 @@ Status Redis::ListsRenamenx(const Slice& key, Redis* new_inst, const Slice& newk
   BaseMetaKey base_meta_newkey(newkey);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
-    if (parsed_lists_meta_value.IsStale()) {
-      return Status::NotFound("Stale");
-    } else if (parsed_lists_meta_value.Count() == 0) {
+    if (IsStale(meta_value)) {
       return Status::NotFound();
     }
     // check if newkey exists.
     std::string new_meta_value;
+    ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
     s = new_inst->GetDB()->Get(default_read_options_, handles_[kMetaCF], base_meta_newkey.Encode(), &new_meta_value);
     if (s.ok()) {
-      ParsedSetsMetaValue parsed_lists_new_meta_value(&new_meta_value);
-      if (!parsed_lists_new_meta_value.IsStale() && parsed_lists_new_meta_value.Count() != 0) {
+      if (IsStale(new_meta_value)) {
         return Status::Corruption();  // newkey already exists.
       }
     }
-
+    ParsedSetsMetaValue parsed_lists_new_meta_value(&new_meta_value);
     // copy a new list with newkey
     statistic = parsed_lists_meta_value.Count();
     s = new_inst->GetDB()->Put(default_write_options_, handles_[kMetaCF], base_meta_newkey.Encode(), meta_value);
