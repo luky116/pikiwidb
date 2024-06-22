@@ -72,7 +72,6 @@ Status Redis::ZPopMax(const Slice& key, const int64_t count, std::vector<ScoreMe
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -80,6 +79,7 @@ Status Redis::ZPopMax(const Slice& key, const int64_t count, std::vector<ScoreMe
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int64_t num = parsed_zsets_meta_value.Count();
       num = num <= count ? num : count;
       uint64_t version = parsed_zsets_meta_value.Version();
@@ -122,7 +122,6 @@ Status Redis::ZPopMin(const Slice& key, const int64_t count, std::vector<ScoreMe
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -130,6 +129,7 @@ Status Redis::ZPopMin(const Slice& key, const int64_t count, std::vector<ScoreMe
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int64_t num = parsed_zsets_meta_value.Count();
       num = num <= count ? num : count;
       uint64_t version = parsed_zsets_meta_value.Version();
@@ -184,65 +184,79 @@ Status Redis::ZAdd(const Slice& key, const std::vector<ScoreMember>& score_membe
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
     bool vaild = true;
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
-      vaild = false;
-      version = parsed_zsets_meta_value.InitialMetaValue();
+      char buf[4];
+      EncodeFixed32(buf, filtered_score_members.size());
+      ZSetsMetaValue zsets_meta_value(DataType::kZSets, Slice(buf, sizeof(int32_t)));
+      version = zsets_meta_value.UpdateVersion();
+      batch->Put(kMetaCF, base_meta_key.Encode(), zsets_meta_value.Encode());
+      for (const auto& sm : filtered_score_members) {
+        ZSetsMemberKey zsets_member_key(key, version, sm.member);
+        const void* ptr_score = reinterpret_cast<const void*>(&sm.score);
+        EncodeFixed64(score_buf, *reinterpret_cast<const uint64_t*>(ptr_score));
+        BaseDataValue zsets_member_i_val(Slice(score_buf, sizeof(uint64_t)));
+        batch->Put(kZsetsDataCF, zsets_member_key.Encode(), zsets_member_i_val.Encode());
+
+        ZSetsScoreKey zsets_score_key(key, version, sm.score, sm.member);
+        BaseDataValue zsets_score_i_val(Slice{});
+        batch->Put(kZsetsScoreCF, zsets_score_key.Encode(), zsets_score_i_val.Encode());
+      }
+      *ret = static_cast<int32_t>(filtered_score_members.size());
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
       return Status::InvalidArgument("WRONGTYPE, key: " + key.ToString() +
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       vaild = true;
       version = parsed_zsets_meta_value.Version();
-    }
-
-    int32_t cnt = 0;
-    std::string data_value;
-    for (const auto& sm : filtered_score_members) {
-      bool not_found = true;
-      ZSetsMemberKey zsets_member_key(key, version, sm.member);
-      if (vaild) {
-        s = db_->Get(default_read_options_, handles_[kZsetsDataCF], zsets_member_key.Encode(), &data_value);
-        if (s.ok()) {
-          ParsedBaseDataValue parsed_value(&data_value);
-          parsed_value.StripSuffix();
-          not_found = false;
-          uint64_t tmp = DecodeFixed64(data_value.data());
-          const void* ptr_tmp = reinterpret_cast<const void*>(&tmp);
-          double old_score = *reinterpret_cast<const double*>(ptr_tmp);
-          if (old_score == sm.score) {
-            continue;
-          } else {
-            ZSetsScoreKey zsets_score_key(key, version, old_score, sm.member);
-            batch->Delete(kZsetsScoreCF, zsets_score_key.Encode());
-            // delete old zsets_score_key and overwirte zsets_member_key
-            // but in different column_families so we accumulative 1
-            statistic++;
+      int32_t cnt = 0;
+      std::string data_value;
+      for (const auto& sm : filtered_score_members) {
+        bool not_found = true;
+        ZSetsMemberKey zsets_member_key(key, version, sm.member);
+        if (vaild) {
+          s = db_->Get(default_read_options_, handles_[kZsetsDataCF], zsets_member_key.Encode(), &data_value);
+          if (s.ok()) {
+            ParsedBaseDataValue parsed_value(&data_value);
+            parsed_value.StripSuffix();
+            not_found = false;
+            uint64_t tmp = DecodeFixed64(data_value.data());
+            const void* ptr_tmp = reinterpret_cast<const void*>(&tmp);
+            double old_score = *reinterpret_cast<const double*>(ptr_tmp);
+            if (old_score == sm.score) {
+              continue;
+            } else {
+              ZSetsScoreKey zsets_score_key(key, version, old_score, sm.member);
+              batch->Delete(kZsetsScoreCF, zsets_score_key.Encode());
+              // delete old zsets_score_key and overwirte zsets_member_key
+              // but in different column_families so we accumulative 1
+              statistic++;
+            }
+          } else if (!s.IsNotFound()) {
+            return s;
           }
-        } else if (!s.IsNotFound()) {
-          return s;
+        }
+
+        const void* ptr_score = reinterpret_cast<const void*>(&sm.score);
+        EncodeFixed64(score_buf, *reinterpret_cast<const uint64_t*>(ptr_score));
+        BaseDataValue zsets_member_i_val(Slice(score_buf, sizeof(uint64_t)));
+        batch->Put(kZsetsDataCF, zsets_member_key.Encode(), zsets_member_i_val.Encode());
+
+        ZSetsScoreKey zsets_score_key(key, version, sm.score, sm.member);
+        BaseDataValue zsets_score_i_val(Slice{});
+        batch->Put(kZsetsScoreCF, zsets_score_key.Encode(), zsets_score_i_val.Encode());
+        if (not_found) {
+          cnt++;
         }
       }
-
-      const void* ptr_score = reinterpret_cast<const void*>(&sm.score);
-      EncodeFixed64(score_buf, *reinterpret_cast<const uint64_t*>(ptr_score));
-      BaseDataValue zsets_member_i_val(Slice(score_buf, sizeof(uint64_t)));
-      batch->Put(kZsetsDataCF, zsets_member_key.Encode(), zsets_member_i_val.Encode());
-
-      ZSetsScoreKey zsets_score_key(key, version, sm.score, sm.member);
-      BaseDataValue zsets_score_i_val(Slice{});
-      batch->Put(kZsetsScoreCF, zsets_score_key.Encode(), zsets_score_i_val.Encode());
-      if (not_found) {
-        cnt++;
+      if (!parsed_zsets_meta_value.CheckModifyCount(cnt)) {
+        return Status::InvalidArgument("zset size overflow");
       }
+      parsed_zsets_meta_value.ModifyCount(cnt);
+      batch->Put(kMetaCF, base_meta_key.Encode(), meta_value);
+      *ret = cnt;
     }
-    if (!parsed_zsets_meta_value.CheckModifyCount(cnt)) {
-      return Status::InvalidArgument("zset size overflow");
-    }
-    parsed_zsets_meta_value.ModifyCount(cnt);
-    batch->Put(kMetaCF, base_meta_key.Encode(), meta_value);
-    *ret = cnt;
   } else if (s.IsNotFound()) {
     char buf[4];
     EncodeFixed32(buf, filtered_score_members.size());
@@ -276,7 +290,6 @@ Status Redis::ZCard(const Slice& key, int32_t* card) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       *card = 0;
       return Status::NotFound();
@@ -285,6 +298,7 @@ Status Redis::ZCard(const Slice& key, int32_t* card) {
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       *card = parsed_zsets_meta_value.Count();
     }
   }
@@ -303,7 +317,6 @@ Status Redis::ZCount(const Slice& key, double min, double max, bool left_close, 
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -311,6 +324,7 @@ Status Redis::ZCount(const Slice& key, double min, double max, bool left_close, 
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t cnt = 0;
       int32_t cur_index = 0;
@@ -363,40 +377,45 @@ Status Redis::ZIncrby(const Slice& key, const Slice& member, double increment, d
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
-      version = parsed_zsets_meta_value.InitialMetaValue();
+      char buf[8];
+      EncodeFixed32(buf, 1);
+      ZSetsMetaValue zsets_meta_value(DataType::kZSets, Slice(buf, sizeof(int32_t)));
+      version = zsets_meta_value.UpdateVersion();
+      batch.Put(handles_[kMetaCF], base_meta_key.Encode(), zsets_meta_value.Encode());
+      score = increment;
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
       return Status::InvalidArgument("WRONGTYPE, key: " + key.ToString() +
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       version = parsed_zsets_meta_value.Version();
-    }
-    std::string data_value;
-    ZSetsMemberKey zsets_member_key(key, version, member);
-    s = db_->Get(default_read_options_, handles_[kZsetsDataCF], zsets_member_key.Encode(), &data_value);
-    if (s.ok()) {
-      ParsedBaseDataValue parsed_value(&data_value);
-      parsed_value.StripSuffix();
-      uint64_t tmp = DecodeFixed64(data_value.data());
-      const void* ptr_tmp = reinterpret_cast<const void*>(&tmp);
-      double old_score = *reinterpret_cast<const double*>(ptr_tmp);
-      score = old_score + increment;
-      ZSetsScoreKey zsets_score_key(key, version, old_score, member);
-      batch.Delete(handles_[kZsetsScoreCF], zsets_score_key.Encode());
-      // delete old zsets_score_key and overwirte zsets_member_key
-      // but in different column_families so we accumulative 1
-      statistic++;
-    } else if (s.IsNotFound()) {
-      score = increment;
-      if (!parsed_zsets_meta_value.CheckModifyCount(1)) {
-        return Status::InvalidArgument("zset size overflow");
+      std::string data_value;
+      ZSetsMemberKey zsets_member_key(key, version, member);
+      s = db_->Get(default_read_options_, handles_[kZsetsDataCF], zsets_member_key.Encode(), &data_value);
+      if (s.ok()) {
+        ParsedBaseDataValue parsed_value(&data_value);
+        parsed_value.StripSuffix();
+        uint64_t tmp = DecodeFixed64(data_value.data());
+        const void* ptr_tmp = reinterpret_cast<const void*>(&tmp);
+        double old_score = *reinterpret_cast<const double*>(ptr_tmp);
+        score = old_score + increment;
+        ZSetsScoreKey zsets_score_key(key, version, old_score, member);
+        batch.Delete(handles_[kZsetsScoreCF], zsets_score_key.Encode());
+        // delete old zsets_score_key and overwirte zsets_member_key
+        // but in different column_families so we accumulative 1
+        statistic++;
+      } else if (s.IsNotFound()) {
+        score = increment;
+        if (!parsed_zsets_meta_value.CheckModifyCount(1)) {
+          return Status::InvalidArgument("zset size overflow");
+        }
+        parsed_zsets_meta_value.ModifyCount(1);
+        batch.Put(handles_[kMetaCF], base_meta_key.Encode(), meta_value);
+      } else {
+        return s;
       }
-      parsed_zsets_meta_value.ModifyCount(1);
-      batch.Put(handles_[kMetaCF], base_meta_key.Encode(), meta_value);
-    } else {
-      return s;
     }
   } else if (s.IsNotFound()) {
     char buf[8];
@@ -435,7 +454,6 @@ Status Redis::ZRange(const Slice& key, int32_t start, int32_t stop, std::vector<
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -443,6 +461,7 @@ Status Redis::ZRange(const Slice& key, int32_t start, int32_t stop, std::vector<
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int32_t count = parsed_zsets_meta_value.Count();
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t start_index = start >= 0 ? start : count + start;
@@ -485,7 +504,6 @@ Status Redis::ZRangeWithTTL(const Slice& key, int32_t start, int32_t stop, std::
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound("Stale");
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -493,6 +511,7 @@ Status Redis::ZRangeWithTTL(const Slice& key, int32_t start, int32_t stop, std::
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       // ttl
       *ttl = parsed_zsets_meta_value.Etime();
       if (*ttl == 0) {
@@ -544,7 +563,6 @@ Status Redis::ZRangebyscore(const Slice& key, double min, double max, bool left_
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -552,6 +570,7 @@ Status Redis::ZRangebyscore(const Slice& key, double min, double max, bool left_
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else if (offset >= 0 && count != 0) {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t index = 0;
       int32_t stop_index = parsed_zsets_meta_value.Count() - 1;
@@ -613,7 +632,6 @@ Status Redis::ZRank(const Slice& key, const Slice& member, int32_t* rank) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -621,6 +639,7 @@ Status Redis::ZRank(const Slice& key, const Slice& member, int32_t* rank) {
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       bool found = false;
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t index = 0;
@@ -667,7 +686,6 @@ Status Redis::ZRem(const Slice& key, const std::vector<std::string>& members, in
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -675,6 +693,7 @@ Status Redis::ZRem(const Slice& key, const std::vector<std::string>& members, in
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int32_t del_cnt = 0;
       std::string data_value;
       uint64_t version = parsed_zsets_meta_value.Version();
@@ -722,7 +741,6 @@ Status Redis::ZRemrangebyrank(const Slice& key, int32_t start, int32_t stop, int
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -733,6 +751,7 @@ Status Redis::ZRemrangebyrank(const Slice& key, int32_t start, int32_t stop, int
       std::string member;
       int32_t del_cnt = 0;
       int32_t cur_index = 0;
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int32_t count = parsed_zsets_meta_value.Count();
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t start_index = start >= 0 ? start : count + start;
@@ -782,7 +801,6 @@ Status Redis::ZRemrangebyscore(const Slice& key, double min, double max, bool le
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -793,6 +811,7 @@ Status Redis::ZRemrangebyscore(const Slice& key, double min, double max, bool le
       std::string member;
       int32_t del_cnt = 0;
       int32_t cur_index = 0;
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int32_t stop_index = parsed_zsets_meta_value.Count() - 1;
       uint64_t version = parsed_zsets_meta_value.Version();
       ZSetsScoreKey zsets_score_key(key, version, min, Slice());
@@ -855,7 +874,6 @@ Status Redis::ZRevrange(const Slice& key, int32_t start, int32_t stop, std::vect
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -863,6 +881,7 @@ Status Redis::ZRevrange(const Slice& key, int32_t start, int32_t stop, std::vect
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int32_t count = parsed_zsets_meta_value.Count();
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t start_index = stop >= 0 ? count - stop - 1 : -stop - 1;
@@ -905,7 +924,6 @@ Status Redis::ZRevrangebyscore(const Slice& key, double min, double max, bool le
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -913,6 +931,7 @@ Status Redis::ZRevrangebyscore(const Slice& key, double min, double max, bool le
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else if (offset >= 0 && count != 0) {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t left = parsed_zsets_meta_value.Count();
       int64_t skipped = 0;
@@ -973,7 +992,6 @@ Status Redis::ZRevrank(const Slice& key, const Slice& member, int32_t* rank) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -981,6 +999,7 @@ Status Redis::ZRevrank(const Slice& key, const Slice& member, int32_t* rank) {
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       bool found = false;
       int32_t rev_index = 0;
       int32_t left = parsed_zsets_meta_value.Count();
@@ -1018,8 +1037,6 @@ Status Redis::ZScore(const Slice& key, const Slice& member, double* score) {
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
-    uint64_t version = parsed_zsets_meta_value.Version();
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -1028,6 +1045,8 @@ Status Redis::ZScore(const Slice& key, const Slice& member, double* score) {
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
       std::string data_value;
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
+      uint64_t version = parsed_zsets_meta_value.Version();
       ZSetsMemberKey zsets_member_key(key, version, member);
       s = db_->Get(read_options, handles_[kZsetsDataCF], zsets_member_key.Encode(), &data_value);
       if (s.ok()) {
@@ -1057,7 +1076,6 @@ Status Redis::ZGetAll(const Slice& key, double weight, std::map<std::string, dou
   BaseMetaKey base_meta_key(key);
   s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
       return Status::InvalidArgument("WRONGTYPE, key: " + key.ToString() +
@@ -1065,6 +1083,7 @@ Status Redis::ZGetAll(const Slice& key, double weight, std::map<std::string, dou
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
       int32_t cur_index = 0;
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       int32_t stop_index = parsed_zsets_meta_value.Count() - 1;
       double score = 0.0;
       uint64_t version = parsed_zsets_meta_value.Version();
@@ -1083,7 +1102,7 @@ Status Redis::ZGetAll(const Slice& key, double weight, std::map<std::string, dou
   return s;
 }
 
-// 标记：pika 存在错误， 可以覆盖其他类型
+// 检查
 Status Redis::ZUnionstore(const Slice& destination, const std::vector<std::string>& keys,
                           const std::vector<double>& weights, const AGGREGATE agg,
                           std::map<std::string, double>& value_to_dest, int32_t* ret) {
@@ -1106,7 +1125,6 @@ Status Redis::ZUnionstore(const Slice& destination, const std::vector<std::strin
     BaseMetaKey base_meta_key(keys[idx]);
     s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
     if (s.ok()) {
-      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       if (IsStale(meta_value)) {
         continue;
       } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -1114,6 +1132,7 @@ Status Redis::ZUnionstore(const Slice& destination, const std::vector<std::strin
                                        ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                        "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
       } else {
+        ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
         int32_t cur_index = 0;
         int32_t stop_index = parsed_zsets_meta_value.Count() - 1;
         double score = 0;
@@ -1192,6 +1211,7 @@ Status Redis::ZUnionstore(const Slice& destination, const std::vector<std::strin
   return s;
 }
 
+// 检查
 Status Redis::ZInterstore(const Slice& destination, const std::vector<std::string>& keys,
                           const std::vector<double>& weights, const AGGREGATE agg,
                           std::vector<ScoreMember>& value_to_dest, int32_t* ret) {
@@ -1223,7 +1243,6 @@ Status Redis::ZInterstore(const Slice& destination, const std::vector<std::strin
     BaseMetaKey base_meta_key(keys[idx]);
     s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
     if (s.ok()) {
-      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       if (IsStale(meta_value)) {
         have_invalid_zsets = true;
       } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -1231,6 +1250,7 @@ Status Redis::ZInterstore(const Slice& destination, const std::vector<std::strin
                                        ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                        "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
       } else {
+        ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
         valid_zsets.push_back({keys[idx], parsed_zsets_meta_value.Version()});
         if (idx == 0) {
           stop_index = parsed_zsets_meta_value.Count() - 1;
@@ -1349,7 +1369,6 @@ Status Redis::ZRangebylex(const Slice& key, const Slice& min, const Slice& max, 
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       return Status::NotFound();
     } else if (!ExpectedMetaValue(DataType::kZSets, meta_value)) {
@@ -1357,6 +1376,7 @@ Status Redis::ZRangebylex(const Slice& key, const Slice& min, const Slice& max, 
                                      ", expect type: " + DataTypeStrings[static_cast<int>(DataType::kZSets)] +
                                      "get type: " + DataTypeStrings[static_cast<int>(GetMetaValueType(meta_value))]);
     } else {
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       uint64_t version = parsed_zsets_meta_value.Version();
       int32_t cur_index = 0;
       int32_t stop_index = parsed_zsets_meta_value.Count() - 1;
@@ -1395,6 +1415,7 @@ Status Redis::ZLexcount(const Slice& key, const Slice& min, const Slice& max, bo
   return s;
 }
 
+// 检查
 Status Redis::ZRemrangebylex(const Slice& key, const Slice& min, const Slice& max, bool left_close, bool right_close,
                              int32_t* ret) {
   *ret = 0;
@@ -1496,7 +1517,6 @@ Status Redis::ZScan(const Slice& key, int64_t cursor, const std::string& pattern
   BaseMetaKey base_meta_key(key);
   Status s = db_->Get(read_options, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
   if (s.ok()) {
-    ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
     if (IsStale(meta_value)) {
       *next_cursor = 0;
       return Status::NotFound();
@@ -1507,6 +1527,7 @@ Status Redis::ZScan(const Slice& key, int64_t cursor, const std::string& pattern
     } else {
       std::string sub_member;
       std::string start_point;
+      ParsedZSetsMetaValue parsed_zsets_meta_value(&meta_value);
       uint64_t version = parsed_zsets_meta_value.Version();
       s = GetScanStartPoint(DataType::kZSets, key, pattern, cursor, &start_point);
       if (s.IsNotFound()) {
