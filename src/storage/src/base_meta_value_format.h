@@ -64,8 +64,11 @@ class ParsedBaseMetaValue : public ParsedInternalValue {
   // Use this constructor after rocksdb::DB::Get();
   explicit ParsedBaseMetaValue(std::string* internal_value_str) : ParsedInternalValue(internal_value_str) {
     if (internal_value_str->size() >= kBaseMetaValueSuffixLength) {
-      int offset = 0;
-      user_value_ = Slice(internal_value_str->data(), internal_value_str->size() - kBaseMetaValueSuffixLength);
+      size_t offset = 0;
+      type_ = static_cast<DataType>(static_cast<uint8_t>((*internal_value_str)[0]));
+      offset += kTypeLength;
+      user_value_ =
+          Slice(internal_value_str->data() + offset, internal_value_str->size() - kBaseMetaValueSuffixLength - offset);
       offset += user_value_.size();
       version_ = DecodeFixed64(internal_value_str->data() + offset);
       offset += sizeof(version_);
@@ -75,7 +78,7 @@ class ParsedBaseMetaValue : public ParsedInternalValue {
       offset += sizeof(ctime_);
       etime_ = DecodeFixed64(internal_value_str->data() + offset);
     }
-    count_ = DecodeFixed32(internal_value_str->data());
+    count_ = DecodeFixed32(internal_value_str->data() + kTypeLength);
   }
 
   // Use this constructor in rocksdb::CompactionFilter::Filter();
