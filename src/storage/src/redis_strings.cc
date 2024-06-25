@@ -1457,7 +1457,7 @@ Status Redis::TTL(const Slice& key, int64_t* timestamp) {
       case DataType::kStrings: {
         ParsedStringsValue parsed_strings_value(&meta_value);
         if (parsed_strings_value.IsStale()) {
-          s = Status::NotFound();
+          *timestamp = -2;
         } else {
           *timestamp = parsed_strings_value.Etime();
           if (*timestamp == 0) {
@@ -1475,7 +1475,7 @@ Status Redis::TTL(const Slice& key, int64_t* timestamp) {
       case DataType::kZSets: {
         ParsedHashesMetaValue parsed_base_meta_value(&meta_value);
         if (parsed_base_meta_value.IsStale() || parsed_base_meta_value.Count() <= 0) {
-          s = Status::NotFound();
+          *timestamp = -2;
         } else {
           *timestamp = parsed_base_meta_value.Etime();
           if (*timestamp == 0) {
@@ -1491,7 +1491,7 @@ Status Redis::TTL(const Slice& key, int64_t* timestamp) {
       case DataType::kLists: {
         ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
         if (parsed_lists_meta_value.IsStale() || parsed_lists_meta_value.Count() <= 0) {
-          s = Status::NotFound();
+          *timestamp = -2;
         } else {
           *timestamp = parsed_lists_meta_value.Etime();
           if (*timestamp == 0) {
