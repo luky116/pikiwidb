@@ -658,7 +658,8 @@ Status Redis::Setxx(const Slice& key, const Slice& value, int32_t* ret, const ui
   ScopeRecordLock l(lock_mgr_, key);
   Status s = db_->Get(default_read_options_, base_key.Encode(), &old_value);
   if (s.ok()) {
-    if (!IsStale(value.ToString())) {
+    std::string s = value.ToString();
+    if (!IsStale(s)) {
       not_found = false;
     }
   } else if (!s.IsNotFound()) {
@@ -1237,7 +1238,7 @@ Status Redis::Del(const Slice& key) {
     auto type = static_cast<DataType>(static_cast<uint8_t>(meta_value[0]));
     switch (type) {
       case DataType::kStrings: {
-        ParsedStringsValue parsed_string_value(meta_value);
+        ParsedStringsValue parsed_string_value(&meta_value);
         if (parsed_string_value.IsStale()) {
           return Status::NotFound();
         }
@@ -1250,7 +1251,7 @@ Status Redis::Del(const Slice& key) {
         if (IsStale(meta_value)) {
           return Status ::NotFound();
         }
-        ParsedBaseMetaValue parsed_base_meta_value(meta_value);
+        ParsedBaseMetaValue parsed_base_meta_value(&meta_value);
         uint64_t statistic = parsed_base_meta_value.Count();
         parsed_base_meta_value.InitialMetaValue();
         s = db_->Put(default_write_options_, handles_[kMetaCF], base_meta_key.Encode(), meta_value);
@@ -1261,7 +1262,7 @@ Status Redis::Del(const Slice& key) {
         if (IsStale(meta_value)) {
           return Status::NotFound();
         }
-        ParsedListsMetaValue parsed_lists_meta_value(meta_value);
+        ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
         uint64_t statistic = parsed_lists_meta_value.Count();
         parsed_lists_meta_value.InitialMetaValue();
         s = db_->Put(default_write_options_, handles_[kMetaCF], base_meta_key.Encode(), meta_value);
@@ -1406,6 +1407,8 @@ Status Redis::Persist(const Slice& key) {
           if (expire_time != 0) {
             parsed_strings_value.SetEtime(0);
             s = db_->Put(default_write_options_, base_meta_key.Encode(), meta_value);
+          } else {
+            s = Status::NotFound();
           }
         }
         break;
@@ -1421,6 +1424,8 @@ Status Redis::Persist(const Slice& key) {
           if (expire_time != 0) {
             parsed_base_meta_value.SetEtime(0);
             s = db_->Put(default_write_options_, base_meta_key.Encode(), meta_value);
+          } else {
+            s = Status::NotFound();
           }
         }
         break;
@@ -1434,6 +1439,8 @@ Status Redis::Persist(const Slice& key) {
           if (expire_time != 0) {
             parsed_lists_meta_value.SetEtime(0);
             s = db_->Put(default_write_options_, base_meta_key.Encode(), meta_value);
+          } else {
+            s = Status::NotFound();
           }
         }
         break;

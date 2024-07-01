@@ -347,21 +347,21 @@ class Redis {
     return false;
   }
 
-  bool IsStale(const std::string& meta_value) {
+  bool IsStale(std::string& meta_value) {
     auto meta_type = static_cast<enum DataType>(static_cast<uint8_t>(meta_value[0]));
     switch (meta_type) {
       case DataType::kZSets:
       case DataType::kSets:
       case DataType::kHashes: {
-        ParsedBaseMetaValue parsed_meta_value(meta_value);
+        ParsedBaseMetaValue parsed_meta_value(&meta_value);
         return (parsed_meta_value.IsStale() || parsed_meta_value.Count() == 0);
       }
       case DataType::kLists: {
-        ParsedListsMetaValue parsed_lists_meta_value(meta_value);
+        ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
         return (parsed_lists_meta_value.IsStale() || parsed_lists_meta_value.Count() == 0);
       }
       case DataType::kStrings: {
-        ParsedStringsValue parsed_strings_value(meta_value);
+        ParsedStringsValue parsed_strings_value(&meta_value);
         return parsed_strings_value.IsStale();
       }
       default: {
