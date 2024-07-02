@@ -244,9 +244,7 @@ bool RenameCmd::DoInitial(PClient* client) {
 }
 
 void RenameCmd::DoCmd(PClient* client) {
-  // storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->Rename(client->Key(),
-  // client->argv_[2]);
-  rocksdb::Status s;
+  storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->Rename(client->Key(), client->argv_[2]);
   if (s.ok()) {
     client->SetRes(CmdRes::kOK);
   } else if (s.IsNotFound()) {
@@ -265,9 +263,8 @@ bool RenameNXCmd::DoInitial(PClient* client) {
 }
 
 void RenameNXCmd::DoCmd(PClient* client) {
-  // storage::Status s =
-  //     PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->Renamenx(client->Key(), client->argv_[2]);
-  rocksdb::Status s;
+  storage::Status s =
+      PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->Renamenx(client->Key(), client->argv_[2]);
   if (s.ok()) {
     client->SetRes(CmdRes::kOK);
   } else if (s.IsNotFound()) {
