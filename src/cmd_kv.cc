@@ -13,7 +13,7 @@
 
 namespace pikiwidb {
 
-extern const char* ErrTypeMessage;
+constexpr const char* ErrTypeMessage = "Invalid argument: WRONGTYPE";
 
 GetCmd::GetCmd(const std::string& name, int16_t arity)
     : BaseCmd(name, arity, kCmdFlagsReadonly, kAclCategoryRead | kAclCategoryString) {}

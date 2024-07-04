@@ -21,8 +21,6 @@
 
 namespace pikiwidb {
 
-constexpr const char* ErrTypeMessage = "Invalid argument: WRONGTYPE";
-
 void CmdRes::RedisAppendLen(std::string& str, int64_t ori, const std::string& prefix) {
   str.append(prefix);
   str.append(pstd::Int2string(ori));
