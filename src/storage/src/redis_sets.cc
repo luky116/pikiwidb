@@ -645,7 +645,7 @@ rocksdb::Status Redis::SMembers(const Slice& key, std::vector<std::string>* memb
   return s;
 }
 
-Status Redis::SMembersWithTTL(const Slice& key, std::vector<std::string>* members, uint64_t* ttl) {
+Status Redis::SMembersWithTTL(const Slice& key, std::vector<std::string>* members, int64_t* ttl) {
   rocksdb::ReadOptions read_options;
   const rocksdb::Snapshot* snapshot;
 

@@ -139,22 +139,22 @@ class Redis {
                std::string& value_to_dest, int64_t* ret);
   Status Decrby(const Slice& key, int64_t value, int64_t* ret);
   Status Get(const Slice& key, std::string* value);
-  Status GetWithTTL(const Slice& key, std::string* value, uint64_t* ttl);
+  Status GetWithTTL(const Slice& key, std::string* value, int64_t* ttl);
   Status GetBit(const Slice& key, int64_t offset, int32_t* ret);
   Status Getrange(const Slice& key, int64_t start_offset, int64_t end_offset, std::string* ret);
   Status GetrangeWithValue(const Slice& key, int64_t start_offset, int64_t end_offset, std::string* ret,
-                           std::string* value, uint64_t* ttl);
+                           std::string* value, int64_t* ttl);
   Status GetSet(const Slice& key, const Slice& value, std::string* old_value);
   Status Incrby(const Slice& key, int64_t value, int64_t* ret);
   Status Incrbyfloat(const Slice& key, const Slice& value, std::string* ret);
   Status MSet(const std::vector<KeyValue>& kvs);
   Status MSetnx(const std::vector<KeyValue>& kvs, int32_t* ret);
   Status Set(const Slice& key, const Slice& value);
-  Status Setxx(const Slice& key, const Slice& value, int32_t* ret, uint64_t ttl = 0);
+  Status Setxx(const Slice& key, const Slice& value, int32_t* ret, int64_t ttl = 0);
   Status SetBit(const Slice& key, int64_t offset, int32_t value, int32_t* ret);
-  Status Setex(const Slice& key, const Slice& value, uint64_t ttl);
-  Status Setnx(const Slice& key, const Slice& value, int32_t* ret, uint64_t ttl = 0);
-  Status Setvx(const Slice& key, const Slice& value, const Slice& new_value, int32_t* ret, uint64_t ttl = 0);
+  Status Setex(const Slice& key, const Slice& value, int64_t ttl);
+  Status Setnx(const Slice& key, const Slice& value, int32_t* ret, int64_t ttl = 0);
+  Status Setvx(const Slice& key, const Slice& value, const Slice& new_value, int32_t* ret, int64_t ttl = 0);
   Status Delvx(const Slice& key, const Slice& value, int32_t* ret);
   Status Setrange(const Slice& key, int64_t start_offset, const Slice& value, int32_t* ret);
   Status Strlen(const Slice& key, int32_t* len);
@@ -182,7 +182,7 @@ class Redis {
   Status HExists(const Slice& key, const Slice& field);
   Status HGet(const Slice& key, const Slice& field, std::string* value);
   Status HGetall(const Slice& key, std::vector<FieldValue>* fvs);
-  Status HGetallWithTTL(const Slice& key, std::vector<FieldValue>* fvs, uint64_t* ttl);
+  Status HGetallWithTTL(const Slice& key, std::vector<FieldValue>* fvs, int64_t* ttl);
   Status HIncrby(const Slice& key, const Slice& field, int64_t value, int64_t* ret);
   Status HIncrbyfloat(const Slice& key, const Slice& field, const Slice& by, std::string* new_value);
   Status HKeys(const Slice& key, std::vector<std::string>* fields);
@@ -223,7 +223,7 @@ class Redis {
                      std::vector<std::string>& value_to_dest, int32_t* ret);
   Status SIsmember(const Slice& key, const Slice& member, int32_t* ret);
   Status SMembers(const Slice& key, std::vector<std::string>* members);
-  Status SMembersWithTTL(const Slice& key, std::vector<std::string>* members, uint64_t* ttl);
+  Status SMembersWithTTL(const Slice& key, std::vector<std::string>* members, int64_t* ttl);
   Status SMove(const Slice& source, const Slice& destination, const Slice& member, int32_t* ret);
   Status SPop(const Slice& key, std::vector<std::string>* members, int64_t cnt);
   Status SRandmember(const Slice& key, int32_t count, std::vector<std::string>* members);
@@ -245,7 +245,7 @@ class Redis {
   Status LPush(const Slice& key, const std::vector<std::string>& values, uint64_t* ret);
   Status LPushx(const Slice& key, const std::vector<std::string>& values, uint64_t* len);
   Status LRange(const Slice& key, int64_t start, int64_t stop, std::vector<std::string>* ret);
-  Status LRangeWithTTL(const Slice& key, int64_t start, int64_t stop, std::vector<std::string>* ret, uint64_t* ttl);
+  Status LRangeWithTTL(const Slice& key, int64_t start, int64_t stop, std::vector<std::string>* ret, int64_t* ttl);
   Status LRem(const Slice& key, int64_t count, const Slice& value, uint64_t* ret);
   Status LSet(const Slice& key, int64_t index, const Slice& value);
   Status LTrim(const Slice& key, int64_t start, int64_t stop);
@@ -261,7 +261,7 @@ class Redis {
   Status ZIncrby(const Slice& key, const Slice& member, double increment, double* ret);
   Status ZRange(const Slice& key, int32_t start, int32_t stop, std::vector<ScoreMember>* score_members);
   Status ZRangeWithTTL(const Slice& key, int32_t start, int32_t stop, std::vector<ScoreMember>* score_members,
-                       uint64_t* ttl);
+                       int64_t* ttl);
   Status ZRangebyscore(const Slice& key, double min, double max, bool left_close, bool right_close, int64_t count,
                        int64_t offset, std::vector<ScoreMember>* score_members);
   Status ZRank(const Slice& key, const Slice& member, int32_t* rank);

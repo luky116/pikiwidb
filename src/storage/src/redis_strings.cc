@@ -324,7 +324,7 @@ Status Redis::Get(const Slice& key, std::string* value) {
   return s;
 }
 
-Status Redis::GetWithTTL(const Slice& key, std::string* value, uint64_t* ttl) {
+Status Redis::GetWithTTL(const Slice& key, std::string* value, int64_t* ttl) {
   value->clear();
   BaseKey base_key(key);
   Status s = db_->Get(default_read_options_, base_key.Encode(), value);
@@ -431,7 +431,7 @@ Status Redis::Getrange(const Slice& key, int64_t start_offset, int64_t end_offse
 }
 
 Status Redis::GetrangeWithValue(const Slice& key, int64_t start_offset, int64_t end_offset, std::string* ret,
-                                std::string* value, uint64_t* ttl) {
+                                std::string* value, int64_t* ttl) {
   *ret = "";
   Status s = db_->Get(default_read_options_, key, value);
   if (s.ok()) {
@@ -650,7 +650,7 @@ Status Redis::Set(const Slice& key, const Slice& value) {
   return batch->Commit();
 }
 
-Status Redis::Setxx(const Slice& key, const Slice& value, int32_t* ret, const uint64_t ttl) {
+Status Redis::Setxx(const Slice& key, const Slice& value, int32_t* ret, int64_t ttl) {
   bool not_found = true;
   std::string old_value;
   StringsValue strings_value(value);
@@ -736,7 +736,7 @@ Status Redis::SetBit(const Slice& key, int64_t offset, int32_t on, int32_t* ret)
   }
 }
 
-Status Redis::Setex(const Slice& key, const Slice& value, uint64_t ttl) {
+Status Redis::Setex(const Slice& key, const Slice& value, int64_t ttl) {
   if (ttl <= 0) {
     return Status::InvalidArgument("invalid expire time");
   }
@@ -753,7 +753,7 @@ Status Redis::Setex(const Slice& key, const Slice& value, uint64_t ttl) {
   return batch->Commit();
 }
 
-Status Redis::Setnx(const Slice& key, const Slice& value, int32_t* ret, const uint64_t ttl) {
+Status Redis::Setnx(const Slice& key, const Slice& value, int32_t* ret, int64_t ttl) {
   *ret = 0;
   std::string old_value;
 
@@ -785,7 +785,7 @@ Status Redis::Setnx(const Slice& key, const Slice& value, int32_t* ret, const ui
 }
 
 // 标记: redis 不存在该命令， 无法保持一致
-Status Redis::Setvx(const Slice& key, const Slice& value, const Slice& new_value, int32_t* ret, const uint64_t ttl) {
+Status Redis::Setvx(const Slice& key, const Slice& value, const Slice& new_value, int32_t* ret, int64_t ttl) {
   *ret = 0;
   std::string old_value;
 
@@ -1606,7 +1606,13 @@ Status Redis::IsExist(const Slice& key) {
   std::string meta_value;
   BaseMetaKey base_meta_key(key);
   rocksdb::Status s = db_->Get(default_read_options_, handles_[kMetaCF], base_meta_key.Encode(), &meta_value);
-  return s;
+  if (s.ok()) {
+    if (IsStale(meta_value)) {
+      return Status::NotFound();
+    }
+    return Status::OK();
+  }
+  return Status::NotFound();
 }
 
 }  //  namespace storage

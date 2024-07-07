@@ -415,7 +415,7 @@ Status Redis::LRange(const Slice& key, int64_t start, int64_t stop, std::vector<
 }
 
 Status Redis::LRangeWithTTL(const Slice& key, int64_t start, int64_t stop, std::vector<std::string>* ret,
-                            uint64_t* ttl) {
+                            int64_t* ttl) {
   rocksdb::ReadOptions read_options;
   const rocksdb::Snapshot* snapshot;
 

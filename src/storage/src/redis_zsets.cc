@@ -489,7 +489,7 @@ Status Redis::ZRange(const Slice& key, int32_t start, int32_t stop, std::vector<
 }
 
 Status Redis::ZRangeWithTTL(const Slice& key, int32_t start, int32_t stop, std::vector<ScoreMember>* score_members,
-                            uint64_t* ttl) {
+                            int64_t* ttl) {
   score_members->clear();
   rocksdb::ReadOptions read_options;
   const rocksdb::Snapshot* snapshot = nullptr;

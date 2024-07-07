@@ -202,7 +202,7 @@ Status Redis::HGetall(const Slice& key, std::vector<FieldValue>* fvs) {
   return s;
 }
 
-Status Redis::HGetallWithTTL(const Slice& key, std::vector<FieldValue>* fvs, uint64_t* ttl) {
+Status Redis::HGetallWithTTL(const Slice& key, std::vector<FieldValue>* fvs, int64_t* ttl) {
   rocksdb::ReadOptions read_options;
   const rocksdb::Snapshot* snapshot;
 
