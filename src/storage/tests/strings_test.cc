@@ -41,9 +41,7 @@ class StringsTest : public ::testing::Test {
     ASSERT_TRUE(s.ok());
   }
 
-  void TearDown() override {
-    db.Close();
-  }
+  void TearDown() override { db.Close(); }
 
   static void SetUpTestSuite() {}
   static void TearDownTestSuite() {}

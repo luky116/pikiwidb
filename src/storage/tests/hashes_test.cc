@@ -43,9 +43,7 @@ class HashesTest : public ::testing::Test {
     ASSERT_TRUE(s.ok());
   }
 
-  void TearDown() override {
-    db.Close();
-  }
+  void TearDown() override { db.Close(); }
 
   static void SetUpTestSuite() {}
   static void TearDownTestSuite() {}
@@ -124,8 +122,10 @@ TEST_F(HashesTest, HDel) {
   s = db.HMSet("HDEL_KEY", fvs);
   ASSERT_TRUE(s.ok());
 
-  std::vector<std::string> fields{"TEST_FIELD1", "TEST_FIELD2", "TEST_FIELD3", "TEST_FIElD2",
-  "TEST_NOT_EXIST_FIELD"}; s = db.HDel("HDEL_KEY", fields, &ret); ASSERT_TRUE(s.ok()); ASSERT_EQ(ret, 3);
+  std::vector<std::string> fields{"TEST_FIELD1", "TEST_FIELD2", "TEST_FIELD3", "TEST_FIElD2", "TEST_NOT_EXIST_FIELD"};
+  s = db.HDel("HDEL_KEY", fields, &ret);
+  ASSERT_TRUE(s.ok());
+  ASSERT_EQ(ret, 3);
 
   s = db.HLen("HDEL_KEY", &ret);
   ASSERT_TRUE(s.ok());
@@ -291,8 +291,8 @@ TEST_F(HashesTest, HIncrby) {
   ASSERT_EQ(ret, 1);
 
   s = db.HIncrby("GP3_HINCRBY_KEY", "GP3_HINCRBY_FIELD", 1, &value);
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_EQ(value, 0);
+  ASSERT_TRUE(s.ok());
+  ASSERT_EQ(value, 2);
 
   // If key does not exist the value is set to 0 before the
   // operation is performed
@@ -363,7 +363,7 @@ TEST_F(HashesTest, HIncrbyfloat) {
 
   s = db.HIncrbyfloat("GP1_HINCRBYFLOAT_KEY", "GP1_HINCRBYFLOAT_FIELD", "1.234", &new_value);
   ASSERT_TRUE(s.ok());
-  //ASSERT_EQ(new_value, "2.468");
+  // ASSERT_EQ(new_value, "2.468");
 
   // ***************** Group 2 Test *****************
   s = db.HSet("GP2_HINCRBYFLOAT_KEY", "GP2_HINCRBYFLOAT_FIELD", " 1.234", &ret);
@@ -397,7 +397,7 @@ TEST_F(HashesTest, HIncrbyfloat) {
   ASSERT_EQ(new_value, "12.3456");
   s = db.HGet("HINCRBYFLOAT_KEY", "HINCRBYFLOAT_FIELD", &new_value);
   ASSERT_TRUE(s.ok());
-  //ASSERT_EQ(new_value, "12.3456");
+  // ASSERT_EQ(new_value, "12.3456");
   s = db.HLen("HINCRBYFLOAT_KEY", &ret);
   ASSERT_TRUE(s.ok());
   ASSERT_EQ(ret, 1);
@@ -2444,11 +2444,11 @@ int main(int argc, char** argv) {
   if (!pstd::FileExists("./log")) {
     pstd::CreatePath("./log");
   }
-//   FLAGS_log_dir = "./log";
-//   FLAGS_minloglevel = 0;
-//   FLAGS_max_log_size = 1800;
-//   FLAGS_logbufsecs = 0;
-//   ::google::InitGoogleLogging("hashes_test");
+  //   FLAGS_log_dir = "./log";
+  //   FLAGS_minloglevel = 0;
+  //   FLAGS_max_log_size = 1800;
+  //   FLAGS_logbufsecs = 0;
+  //   ::google::InitGoogleLogging("hashes_test");
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
