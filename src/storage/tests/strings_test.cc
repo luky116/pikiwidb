@@ -43,7 +43,6 @@ class StringsTest : public ::testing::Test {
 
   void TearDown() override {
     db.Close();
-    // storage::DeleteFiles(db_path.c_str());
   }
 
   static void SetUpTestSuite() {}
