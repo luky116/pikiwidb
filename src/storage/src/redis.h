@@ -302,7 +302,7 @@ class Redis {
 
   TypeIterator* CreateIterator(const DataType& type, const std::string& pattern, const Slice* lower_bound,
                                const Slice* upper_bound) {
-    return CreateIterator(DataTypeTag[type], pattern, lower_bound, upper_bound);
+    return CreateIterator(DataTypeTag[static_cast<uint8_t>(type)], pattern, lower_bound, upper_bound);
   }
 
   TypeIterator* CreateIterator(const char& type, const std::string& pattern, const Slice* lower_bound,

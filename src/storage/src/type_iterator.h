@@ -115,7 +115,7 @@ class StringsIterator : public TypeIterator {
 
   bool ShouldSkip() override {
     auto type = static_cast<DataType>(static_cast<uint8_t>(raw_iter_->value()[0]));
-    if (type != DataType::kHashes) {
+    if (type != DataType::kStrings) {
       return true;
     }
     ParsedStringsValue parsed_value(raw_iter_->value());

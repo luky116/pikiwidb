@@ -1537,19 +1537,19 @@ Status Redis::PKPatternMatchDel(const std::string& pattern, int32_t* ret) {
   rocksdb::WriteBatch batch;
   rocksdb::Iterator* iter = db_->NewIterator(iterator_options, handles_[kMetaCF]);
   iter->SeekToFirst();
-  key = iter->key().ToString();
   while (iter->Valid()) {
     auto meta_type = static_cast<enum DataType>(static_cast<uint8_t>(iter->value()[0]));
     ParsedBaseMetaKey parsed_meta_key(iter->key().ToString());
+    key = iter->key().ToString();
+    meta_value = iter->value().ToString();
+
     if (meta_type == DataType::kStrings) {
-      meta_value = iter->value().ToString();
       ParsedStringsValue parsed_strings_value(&meta_value);
-      if (!parsed_strings_value.IsStale() &&
-          (StringMatch(pattern.data(), pattern.size(), key.data(), key.size(), 0) != 0)) {
+      if (!parsed_strings_value.IsStale() && (StringMatch(pattern.data(), pattern.size(), parsed_meta_key.Key().data(),
+                                                          parsed_meta_key.Key().size(), 0) != 0)) {
         batch.Delete(key);
       }
     } else if (meta_type == DataType::kLists) {
-      meta_value = iter->value().ToString();
       ParsedListsMetaValue parsed_lists_meta_value(&meta_value);
       if (!parsed_lists_meta_value.IsStale() && (parsed_lists_meta_value.Count() != 0U) &&
           (StringMatch(pattern.data(), pattern.size(), parsed_meta_key.Key().data(), parsed_meta_key.Key().size(), 0) !=
@@ -1558,7 +1558,6 @@ Status Redis::PKPatternMatchDel(const std::string& pattern, int32_t* ret) {
         batch.Put(handles_[kMetaCF], iter->key(), meta_value);
       }
     } else {
-      meta_value = iter->value().ToString();
       ParsedBaseMetaValue parsed_meta_value(&meta_value);
       if (!parsed_meta_value.IsStale() && (parsed_meta_value.Count() != 0) &&
           (StringMatch(pattern.data(), pattern.size(), parsed_meta_key.Key().data(), parsed_meta_key.Key().size(), 0) !=
@@ -1575,7 +1574,6 @@ Status Redis::PKPatternMatchDel(const std::string& pattern, int32_t* ret) {
         batch.Clear();
       } else {
         *ret = total_delete;
-        delete iter;
         return s;
       }
     }
@@ -1590,7 +1588,6 @@ Status Redis::PKPatternMatchDel(const std::string& pattern, int32_t* ret) {
   }
 
   *ret = total_delete;
-  delete iter;
   return s;
 }
 
