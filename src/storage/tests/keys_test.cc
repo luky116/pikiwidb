@@ -48,7 +48,7 @@ class KeysTest : public ::testing::Test {
   static void SetUpTestSuite() {}
   static void TearDownTestSuite() {}
 
-  std::string db_path{"./test_db/string_test"};
+  std::string db_path{"./test_db/keys_test"};
   storage::StorageOptions options;
   storage::Storage db;
   storage::Status s;
