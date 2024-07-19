@@ -360,7 +360,7 @@ Status Storage::MGet(const std::vector<std::string>& keys, std::vector<ValueStat
     s = inst->Get(key, &value);
     if (s.ok()) {
       vss->push_back({value, Status::OK()});
-    } else if (s.IsNotFound()) {
+    } else if (s.IsNotFound() || s.IsInvalidArgument()) {
       vss->push_back({std::string(), Status::NotFound()});
     } else {
       vss->clear();
@@ -380,7 +380,7 @@ Status Storage::MGetWithTTL(const std::vector<std::string>& keys, std::vector<Va
     s = inst->GetWithTTL(key, &value, &ttl);
     if (s.ok()) {
       vss->push_back({value, Status::OK(), ttl});
-    } else if (s.IsNotFound()) {
+    } else if (s.IsNotFound() || s.IsInvalidArgument()) {
       vss->push_back({std::string(), Status::NotFound(), ttl});
     } else {
       vss->clear();

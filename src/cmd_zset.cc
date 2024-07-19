@@ -538,10 +538,13 @@ void ZRevrangebyscoreCmd::DoCmd(PClient* client) {
     return;
   }
   std::vector<storage::ScoreMember> score_members;
+  std::cout <<"min = " << min_score << " max = " << max_score << " offset = " << offset << " count = " << count << std::endl;
   storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())
                           ->GetStorage()
-                          ->ZRevrangebyscore(client->Key(), min_score, max_score, left_close, right_close, count,
-                                             offset, &score_members);
+                          ->ZRevrangebyscore(client->Key(), min_score, max_score, left_close, right_close, &score_members);
+  for (auto& sc : score_members) {
+    std::cout << "member = " << sc.member << std::endl;
+  }
   if (!s.ok() && !s.IsNotFound()) {
     if (s.IsInvalidArgument()) {
       client->SetRes(CmdRes::kMultiKey);
@@ -584,7 +587,9 @@ bool ZCardCmd::DoInitial(PClient* client) {
 void ZCardCmd::DoCmd(PClient* client) {
   int32_t reply_Num = 0;
   storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->ZCard(client->Key(), &reply_Num);
-  if (!s.ok()) {
+  if (s.ok() || s.IsNotFound()) {
+    client->AppendInteger(reply_Num);
+  } else {
     if (s.IsInvalidArgument()) {
       client->SetRes(CmdRes::kMultiKey);
     } else {
@@ -592,7 +597,6 @@ void ZCardCmd::DoCmd(PClient* client) {
     }
     return;
   }
-  client->AppendInteger(reply_Num);
 }
 
 ZRangeCmd::ZRangeCmd(const std::string& name, int16_t arity)

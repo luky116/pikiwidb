@@ -207,7 +207,9 @@ void SMoveCmd::DoCmd(PClient* client) {
   storage::Status s = PSTORE.GetBackend(client->GetCurrentDB())
                           ->GetStorage()
                           ->SMove(client->argv_[1], client->argv_[2], client->argv_[3], &reply_num);
-  if (!s.ok()) {
+  if (s.ok() || s.IsNotFound()) {
+    client->AppendInteger(reply_num);
+  } else {
     if (s.IsInvalidArgument()) {
       client->SetRes(CmdRes::kMultiKey);
     } else {
@@ -215,7 +217,6 @@ void SMoveCmd::DoCmd(PClient* client) {
     }
     return;
   }
-  client->AppendInteger(reply_num);
 }
 
 SRandMemberCmd::SRandMemberCmd(const std::string& name, int16_t arity)
@@ -239,8 +240,16 @@ bool SRandMemberCmd::DoInitial(PClient* client) {
 void SRandMemberCmd::DoCmd(PClient* client) {
   std::vector<std::string> vec_ret;
   storage::Status s =
-      PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->SRandmember(client->Key(), this->num_rand, &vec_ret);
-  if (!s.ok()) {
+      PSTORE.GetBackend(client->GetCurrentDB())->GetStorage()->SRandmember(client->argv_[1], this->num_rand, &vec_ret);
+  if(s.ok()) {
+    if (client->argv_.size() == 3) {
+      client->AppendStringVector(vec_ret);
+    } else if (client->argv_.size() == 2) {  // srand only needs to return one element
+      client->AppendString(vec_ret[0]);
+    }
+    return;
+  }
+  if(!s.IsNotFound()) {
     if (s.IsInvalidArgument()) {
       client->SetRes(CmdRes::kMultiKey);
     } else {
@@ -248,11 +257,9 @@ void SRandMemberCmd::DoCmd(PClient* client) {
     }
     return;
   }
-  if (client->argv_.size() == 3) {
-    client->AppendStringVector(vec_ret);
-  } else if (client->argv_.size() == 2) {  // srand only needs to return one element
-    client->AppendString(vec_ret[0]);
-  }
+  client->AppendString("");
+  
+  
 }
 
 SPopCmd::SPopCmd(const std::string& name, int16_t arity)

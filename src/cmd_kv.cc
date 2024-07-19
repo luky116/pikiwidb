@@ -13,8 +13,6 @@
 
 namespace pikiwidb {
 
-constexpr const char* ErrTypeMessage = "Invalid argument: WRONGTYPE";
-
 GetCmd::GetCmd(const std::string& name, int16_t arity)
     : BaseCmd(name, arity, kCmdFlagsReadonly, kAclCategoryRead | kAclCategoryString) {}
 
@@ -631,14 +629,17 @@ bool SetBitCmd::DoInitial(PClient* client) {
 void SetBitCmd::DoCmd(PClient* client) {
   long offset = 0;
   long on = 0;
-  if (!pstd::String2int(client->argv_[2].c_str(), client->argv_[2].size(), &offset) ||
-      !pstd::String2int(client->argv_[3].c_str(), client->argv_[3].size(), &on)) {
-    client->SetRes(CmdRes::kInvalidInt);
+  if (pstd::String2int(client->argv_[2].c_str(), client->argv_[2].size(), &offset) == 0) {
+    client->SetRes(CmdRes::kInvalidBitOffsetInt);
+    return;
+  }
+  if (pstd::String2int(client->argv_[3].c_str(), client->argv_[3].size(), &on) == 0) {
+    client->SetRes(CmdRes::kInvalidBitInt);
     return;
   }
 
   if (offset < 0 || offset > kStringMaxBytes) {
-    client->AppendInteger(0);
+    client->SetRes(CmdRes::kInvalidBitInt);
     return;
   }
 
