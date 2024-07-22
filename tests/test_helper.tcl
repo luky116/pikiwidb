@@ -16,7 +16,7 @@ set ::all_tests {
    # unit/basic
    # unit/scan
    # unit/multi
-   # unit/quit
+   unit/quit
    # unit/type/list
    # unit/pubsub
    # unit/slowlog
