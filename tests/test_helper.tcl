@@ -23,7 +23,7 @@ set ::all_tests {
    # unit/maxmemory
    # unit/bitops
    # unit/hyperloglog
-   # unit/type
+   unit/type
    # unit/acl
    # unit/type/list-2
     # unit/type/list-3
