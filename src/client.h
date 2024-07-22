@@ -46,6 +46,8 @@ class CmdRes {
     kInvalidDB,
     kInconsistentHashTag,
     kErrOther,
+    kUnknownCmd,
+    kUnknownSubCmd,
     KIncrByOverFlow,
     kInvalidCursor,
     kWrongLeader,
