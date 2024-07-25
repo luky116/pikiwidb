@@ -517,7 +517,7 @@ Status Redis::Incrby(const Slice& key, int64_t value, int64_t* ret) {
       StringsValue strings_value(buf);
       return db_->Put(default_write_options_, base_key.Encode(), strings_value.Encode());
     } else if (!ExpectedMetaValue(DataType::kStrings, old_value)) {
-      return Status::InvalidArgument(fmt::format("WRONGTYPE, key: {}, expect type: {}, get type: {}", key.ToString(),
+      return Status::NotSupported(fmt::format("WRONGTYPE, key: {}, expect type: {}, get type: {}", key.ToString(),
                                                  DataTypeStrings[static_cast<int>(DataType::kStrings)],
                                                  DataTypeStrings[static_cast<int>(GetMetaValueType(old_value))]));
     } else {
@@ -1129,13 +1129,18 @@ Status Redis::StringsRename(const Slice& key, Redis* new_inst, const Slice& newk
   BaseKey base_key(key);
   BaseKey base_newkey(newkey);
   s = db_->Get(default_read_options_, base_key.Encode(), &value);
-  if (s.ok()) {
-    if (IsStale(value)) {
-      return Status::NotFound("Stale");
-    }
-    db_->Delete(default_write_options_, base_key.Encode());
-    s = new_inst->GetDB()->Put(default_write_options_, base_newkey.Encode(), value);
+  if (!s.ok() || !ExpectedMetaValue(DataType::kStrings, value)) {
+    return s;
   }
+  if (key == newkey) {
+    return Status::OK();
+  }
+
+  if (IsStale(value)) {
+    return Status::NotFound("Stale");
+  }
+  db_->Delete(default_write_options_, base_key.Encode());
+  s = new_inst->GetDB()->Put(default_write_options_, base_newkey.Encode(), value);
   return s;
 }
 
@@ -1148,20 +1153,26 @@ Status Redis::StringsRenamenx(const Slice& key, Redis* new_inst, const Slice& ne
   BaseKey base_key(key);
   BaseKey base_newkey(newkey);
   s = db_->Get(default_read_options_, base_key.Encode(), &value);
-  if (s.ok()) {
-    if (IsStale(value)) {
-      return Status::NotFound("Stale");
-    }
-    // check if newkey exists.
-    s = new_inst->GetDB()->Get(default_read_options_, base_newkey.Encode(), &value);
-    if (s.ok()) {
-      if (!IsStale(value)) {
-        return Status::Corruption();  // newkey already exists.
-      }
-    }
-    db_->Delete(default_write_options_, base_key.Encode());
-    s = new_inst->GetDB()->Put(default_write_options_, base_newkey.Encode(), value);
+  if (!s.ok() || !ExpectedMetaValue(DataType::kStrings, value)) {
+      return s;
   }
+  if (key == newkey) {
+      return Status::Corruption();
+  }
+
+  if (IsStale(value)) {
+    return Status::NotFound("Stale");
+  }
+  // check if newkey exists.
+  s = new_inst->GetDB()->Get(default_read_options_, base_newkey.Encode(), &value);
+  if (s.ok()) {
+    if (!IsStale(value)) {
+      return Status::Corruption();  // newkey already exists.
+    }
+  }
+  db_->Delete(default_write_options_, base_key.Encode());
+  s = new_inst->GetDB()->Put(default_write_options_, base_newkey.Encode(), value);
+
   return s;
 }
 
@@ -1596,7 +1607,7 @@ Status Redis::GetType(const Slice& key, enum DataType& type) {
   if (s.ok()) {
     type = static_cast<enum DataType>(static_cast<uint8_t>(meta_value[0]));
   }
-  return Status::OK();
+  return s;
 }
 
 Status Redis::IsExist(const Slice& key) {
