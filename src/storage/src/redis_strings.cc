@@ -886,6 +886,9 @@ Status Redis::Setrange(const Slice& key, int64_t start_offset, const Slice& valu
     strings_value.SetEtime(timestamp);
     return db_->Put(default_write_options_, base_key.Encode(), strings_value.Encode());
   } else if (s.IsNotFound()) {
+    if (value.empty()) { // ignore empty value
+      return Status::OK();
+    }
     std::string tmp(start_offset, '\0');
     new_value = tmp.append(value.data());
     *ret = static_cast<int32_t>(new_value.length());
