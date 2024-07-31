@@ -153,12 +153,11 @@ start_server {tags {"bitops"}} {
         list [r get res1] [r get res2] [r get res3]
     } [list "\x01\x02\xff\x00" "\x01\x02\xff\xff" "\x00\x00\x00\xff"]
 
-# TODO 卡主
-
     foreach op {and or xor} {
         test "BITOP $op fuzzing" {
             for {set i 0} {$i < 10} {incr i} {
-                r flushall
+                # TODO replaced by r flushall
+                r flushdb
                 set vec {}
                 set veckeys {}
                 set numvec [expr {[randomInt 10]+1}]
@@ -174,11 +173,10 @@ start_server {tags {"bitops"}} {
         }
     }
 
-# TODO 卡主
-
    test {BITOP NOT fuzzing} {
        for {set i 0} {$i < 10} {incr i} {
-           r flushall
+           # TODO replaced by r flushall
+           r flushdb
            set str [randstring 0 1000]
            r set str $str
            r bitop not target str
@@ -202,7 +200,6 @@ start_server {tags {"bitops"}} {
         set e
     } {WRONGTYPE*}
 
-    # TODO 卡主
     test {BITOP with empty string after non empty string (issue #529)} {
         r flushdb
         r set a "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
