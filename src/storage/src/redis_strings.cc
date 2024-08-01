@@ -518,8 +518,8 @@ Status Redis::Incrby(const Slice& key, int64_t value, int64_t* ret) {
       return db_->Put(default_write_options_, base_key.Encode(), strings_value.Encode());
     } else if (!ExpectedMetaValue(DataType::kStrings, old_value)) {
       return Status::NotSupported(fmt::format("WRONGTYPE, key: {}, expect type: {}, get type: {}", key.ToString(),
-                                                 DataTypeStrings[static_cast<int>(DataType::kStrings)],
-                                                 DataTypeStrings[static_cast<int>(GetMetaValueType(old_value))]));
+                                              DataTypeStrings[static_cast<int>(DataType::kStrings)],
+                                              DataTypeStrings[static_cast<int>(GetMetaValueType(old_value))]));
     } else {
       ParsedStringsValue parsed_strings_value(&old_value);
       uint64_t timestamp = parsed_strings_value.Etime();
@@ -886,7 +886,7 @@ Status Redis::Setrange(const Slice& key, int64_t start_offset, const Slice& valu
     strings_value.SetEtime(timestamp);
     return db_->Put(default_write_options_, base_key.Encode(), strings_value.Encode());
   } else if (s.IsNotFound()) {
-    if (value.empty()) { // ignore empty value
+    if (value.empty()) {  // ignore empty value
       return Status::OK();
     }
     std::string tmp(start_offset, '\0');
@@ -1157,10 +1157,10 @@ Status Redis::StringsRenamenx(const Slice& key, Redis* new_inst, const Slice& ne
   BaseKey base_newkey(newkey);
   s = db_->Get(default_read_options_, base_key.Encode(), &value);
   if (!s.ok() || !ExpectedMetaValue(DataType::kStrings, value)) {
-      return s;
+    return s;
   }
   if (key == newkey) {
-      return Status::Corruption();
+    return Status::Corruption();
   }
 
   if (IsStale(value)) {
