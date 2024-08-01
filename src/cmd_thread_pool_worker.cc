@@ -21,9 +21,9 @@ void CmdWorkThreadPoolWorker::Work() {
       auto [cmdPtr, ret] = cmd_table_manager_.GetCommand(task->CmdName(), task->Client().get());
 
       if (!cmdPtr) {
-        if(ret == CmdRes::kUnknownCmd) {
+        if (ret == CmdRes::kUnknownCmd) {
           task->Client()->SetRes(CmdRes::kErrOther, "unknown command '" + task->CmdName() + "'");
-        } else if(ret == CmdRes::kUnknownSubCmd) {
+        } else if (ret == CmdRes::kUnknownSubCmd) {
           task->Client()->SetRes(CmdRes::kErrOther, "unknown sub command '" + task->Client().get()->argv_[1] + "'");
         } else {
           task->Client()->SetRes(CmdRes::kInvalidParameter);
