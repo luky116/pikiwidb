@@ -102,8 +102,10 @@ var _ = Describe("Consistency", Ordered, func() {
 				leader = s.NewClient()
 				Expect(leader).NotTo(BeNil())
 				// TODO don't assert FlushDB's result, bug will fixed by issue #401
-				//Expect(eader.FlushDB(ctx).Err()).NotTo(HaveOccurred())
-				leader.FlushDB(ctx)
+				//Expect(leader.FlushDB(ctx).Err()).NotTo(HaveOccurred())
+				if res := leader.FlushDB(ctx); res.Err() != nil {
+					fmt.Println("[Consistency]FlushDB error: ", res.Err())
+				}
 
 				info, err := leader.Do(ctx, "info", "raft").Result()
 				Expect(err).NotTo(HaveOccurred())
@@ -120,7 +122,9 @@ var _ = Describe("Consistency", Ordered, func() {
 				Expect(c).NotTo(BeNil())
 				// TODO don't assert FlushDB's result, bug will fixed by issue #401
 				//Expect(c.FlushDB(ctx).Err().Error()).To(Equal("ERR -MOVED 127.0.0.1:12111"))
-				c.FlushDB(ctx)
+				if res := c.FlushDB(ctx); res.Err() != nil {
+					fmt.Println("[Consistency]FlushDB error: ", res.Err())
+				}
 				followers = append(followers, c)
 
 				info, err := c.Do(ctx, "info", "raft").Result()

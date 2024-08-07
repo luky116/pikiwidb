@@ -352,7 +352,6 @@ var _ = Describe("Keyspace", Ordered, func() {
 
 		Expect(client.Get(ctx, DefaultKey).Err()).To(MatchError(redis.Nil))
 		Expect(client.Exists(ctx, DefaultKey).Val()).To(Equal(int64(0)))
-
 	})
 
 	It("persist", func() {
