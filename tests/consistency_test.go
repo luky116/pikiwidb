@@ -10,6 +10,7 @@ package pikiwidb_test
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"log"
 	"os/exec"
 	"strconv"
@@ -48,14 +49,18 @@ var _ = Describe("Consistency", Ordered, func() {
 				leader = s.NewClient()
 				Expect(leader).NotTo(BeNil())
 				// TODO don't assert FlushDB's result, bug will fixed by issue #401
-				//Expect(// leader.FlushDB(ctx).Err().Error()).To(Equal("ERR PRAFT is not initialized"))
-				// leader.FlushDB(ctx)
+				//Expect(leader.FlushDB(ctx).Err().Error()).To(Equal("ERR PRAFT is not initialized"))
+				if res := leader.FlushDB(ctx); res.Err() == nil || res.Err().Error() != "ERR PRAFT is not initialized" {
+					fmt.Println("[Consistency]FlushDB error: ", res.Err())
+				}
 			} else {
 				c := s.NewClient()
 				Expect(c).NotTo(BeNil())
 				// TODO don't assert FlushDB's result, bug will fixed by issue #401
 				//Expect(c.FlushDB(ctx).Err().Error()).To(Equal("ERR PRAFT is not initialized"))
-				c.FlushDB(ctx)
+				if res := c.FlushDB(ctx); res.Err() == nil || res.Err().Error() != "ERR PRAFT is not initialized" {
+					fmt.Println("[Consistency]FlushDB error: ", res.Err())
+				}
 				followers = append(followers, c)
 			}
 		}
@@ -97,8 +102,8 @@ var _ = Describe("Consistency", Ordered, func() {
 				leader = s.NewClient()
 				Expect(leader).NotTo(BeNil())
 				// TODO don't assert FlushDB's result, bug will fixed by issue #401
-				//Expect(// leader.FlushDB(ctx).Err()).NotTo(HaveOccurred())
-				// leader.FlushDB(ctx)
+				//Expect(eader.FlushDB(ctx).Err()).NotTo(HaveOccurred())
+				leader.FlushDB(ctx)
 
 				info, err := leader.Do(ctx, "info", "raft").Result()
 				Expect(err).NotTo(HaveOccurred())

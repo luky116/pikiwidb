@@ -9,6 +9,7 @@ package pikiwidb_test
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -54,7 +55,9 @@ var _ = Describe("Keyspace", Ordered, func() {
 		client = s.NewClient()
 		// TODO don't assert FlushDB's result, bug will fixed by issue #401
 		// Expect(client.FlushDB(ctx).Err()).NotTo(HaveOccurred())
-		client.FlushDB(ctx)
+		if res := client.FlushDB(ctx); res.Err() != nil {
+			fmt.Println("[Keyspace]FlushDB error: ", res.Err())
+		}
 		time.Sleep(2 * time.Second)
 	})
 

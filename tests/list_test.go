@@ -9,6 +9,7 @@ package pikiwidb_test
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"time"
@@ -63,7 +64,9 @@ var _ = Describe("List", Ordered, func() {
 		client = s.NewClient()
 		// TODO don't assert FlushDB's result, bug will fixed by issue #401
 		//Expect(client.FlushDB(ctx).Err()).NotTo(HaveOccurred())
-		client.FlushDB(ctx)
+		if res := client.FlushDB(ctx); res.Err() != nil {
+			fmt.Println("[List]FlushDB error: ", res.Err())
+		}
 		time.Sleep(1 * time.Second)
 	})
 
