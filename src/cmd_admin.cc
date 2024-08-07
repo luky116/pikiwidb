@@ -65,9 +65,7 @@ bool FlushdbCmd::DoInitial(PClient* client) { return true; }
 void FlushdbCmd::DoCmd(PClient* client) {
   int currentDBIndex = client->GetCurrentDB();
   PSTORE.GetBackend(currentDBIndex).get()->Lock();
-  DEFER {
-    PSTORE.GetBackend(currentDBIndex).get()->UnLock();
-  };
+  DEFER { PSTORE.GetBackend(currentDBIndex).get()->UnLock(); };
 
   std::string db_path = g_config.db_path.ToString() + std::to_string(currentDBIndex);
   std::string path_temp = db_path;
@@ -77,7 +75,7 @@ void FlushdbCmd::DoCmd(PClient* client) {
   auto s = PSTORE.GetBackend(currentDBIndex)->Open();
   if (!s.ok()) {
     client->SetRes(CmdRes::kErrOther, "flushdb failed");
-    return ;
+    return;
   }
   auto f = std::async(std::launch::async, [&path_temp]() { pstd::DeleteDir(path_temp); });
   client->SetRes(CmdRes::kOK);
