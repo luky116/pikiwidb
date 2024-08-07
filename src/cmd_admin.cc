@@ -75,7 +75,7 @@ void FlushdbCmd::DoCmd(PClient* client) {
   pstd::RenameFile(db_path, path_temp);
 
   auto s = PSTORE.GetBackend(currentDBIndex)->Open();
-  if (s.ok()) {
+  if (!s.ok()) {
     client->SetRes(CmdRes::kErrOther, "flushdb failed");
     return ;
   }
