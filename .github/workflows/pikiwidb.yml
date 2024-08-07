@@ -43,7 +43,7 @@ jobs:
         run: |
           cd ../tests
           go mod tidy
-          go test -timeout 15m
+          go test -timeout 15m --ginkgo.v
 
   build_on_ubuntu:
     runs-on: ubuntu-latest
