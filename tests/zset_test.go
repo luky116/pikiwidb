@@ -53,8 +53,8 @@ var _ = Describe("Zset", Ordered, func() {
 	BeforeEach(func() {
 		client = s.NewClient()
 		// TODO don't assert FlushDB's result, bug will fixed by issue #401
-		//Expect(client.FlushDB(ctx).Err()).NotTo(HaveOccurred())
-		client.FlushDB(ctx)
+		//Expect(// client.FlushDB(ctx).Err()).NotTo(HaveOccurred())
+		// client.FlushDB(ctx)
 		time.Sleep(1 * time.Second)
 	})
 

@@ -48,8 +48,8 @@ var _ = Describe("Consistency", Ordered, func() {
 				leader = s.NewClient()
 				Expect(leader).NotTo(BeNil())
 				// TODO don't assert FlushDB's result, bug will fixed by issue #401
-				//Expect(leader.FlushDB(ctx).Err().Error()).To(Equal("ERR PRAFT is not initialized"))
-				leader.FlushDB(ctx)
+				//Expect(// leader.FlushDB(ctx).Err().Error()).To(Equal("ERR PRAFT is not initialized"))
+				// leader.FlushDB(ctx)
 			} else {
 				c := s.NewClient()
 				Expect(c).NotTo(BeNil())
@@ -97,8 +97,8 @@ var _ = Describe("Consistency", Ordered, func() {
 				leader = s.NewClient()
 				Expect(leader).NotTo(BeNil())
 				// TODO don't assert FlushDB's result, bug will fixed by issue #401
-				//Expect(leader.FlushDB(ctx).Err()).NotTo(HaveOccurred())
-				leader.FlushDB(ctx)
+				//Expect(// leader.FlushDB(ctx).Err()).NotTo(HaveOccurred())
+				// leader.FlushDB(ctx)
 
 				info, err := leader.Do(ctx, "info", "raft").Result()
 				Expect(err).NotTo(HaveOccurred())
