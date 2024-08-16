@@ -175,7 +175,7 @@ start_server {tags {"bitops"}} {
 
    test {BITOP NOT fuzzing} {
        for {set i 0} {$i < 10} {incr i} {
-           r flushall
+           r flushdb
            set str [randstring 0 1000]
            r set str $str
            r bitop not target str
